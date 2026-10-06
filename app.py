@@ -39,12 +39,13 @@ API_URL = "https://api.chatanywhere.tech/v1/chat/completions"
 API_KEY = os.environ.get("CHATANYWHERE_API_KEY", "你的ChatAnywhere付费Key")
 
 # 模型阶梯：第一层用主力模型，自我评估不准后升级到第三层的更强模型
-MODEL_CHEAP = "claude-sonnet-5.5"  # 第一层：主力模型（付费）
-MODEL_STRONG = "claude-opus-5.5"   # 第三层：更强兜底模型（可自行替换）
+# 注意：ChatAnywhere 的模型名用横杠连接版本号（如 claude-sonnet-5-5，不是 5.5）
+MODEL_CHEAP = "claude-sonnet-5-5"  # 第一层：主力模型（付费）
+MODEL_STRONG = "claude-opus-5-5"   # 第三层：更强兜底模型（可自行替换）
 # 日志里显示用的友好名称（方便评委阅读）
 MODEL_DISPLAY = {
-    "claude-sonnet-5.5": "Claude Sonnet 5.5（主力模型）",
-    "claude-opus-5.5": "Claude Opus 5.5（高级模型）",
+    "claude-sonnet-5-5": "Claude Sonnet 5.5（主力模型）",
+    "claude-opus-5-5": "Claude Opus 5.5（高级模型）",
 }
 
 # ---------------- 提示词 ----------------
