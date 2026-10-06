@@ -32,19 +32,19 @@ def _load_dotenv(path=None):
 
 _load_dotenv()
 
-# 智谱开放平台（OpenAI 兼容接口；免费、无需绑卡，实测可用）
-API_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-# 密钥优先读环境变量 ZHIPU_API_KEY（来自 .env 文件）；
+# ChatAnywhere（OpenAI 兼容接口，主力视觉模型平台）
+API_URL = "https://api.chatanywhere.tech/v1/chat/completions"
+# 密钥优先读环境变量 CHATANYWHERE_API_KEY（来自 .env 文件）；
 # 读不到时使用下方占位符——也可以直接把占位符换成真实值
-API_KEY = os.environ.get("ZHIPU_API_KEY", "vck_你的真实Key")
+API_KEY = os.environ.get("CHATANYWHERE_API_KEY", "你的ChatAnywhere付费Key")
 
-# 模型阶梯：第一层用便宜快速的模型，自我评估不准后升级到第三层的昂贵模型
-MODEL_CHEAP = "glm-4v-flash"      # 第一层：免费快速模型
-MODEL_STRONG = "glm-4v-plus"      # 第三层：付费高级兜底模型
+# 模型阶梯：第一层用主力模型，自我评估不准后升级到第三层的更强模型
+MODEL_CHEAP = "claude-sonnet-5.5"  # 第一层：主力模型（付费）
+MODEL_STRONG = "claude-opus-5.5"   # 第三层：更强兜底模型（可自行替换）
 # 日志里显示用的友好名称（方便评委阅读）
 MODEL_DISPLAY = {
-    "glm-4v-flash": "GLM-4V Flash（快速模型）",
-    "glm-4v-plus": "GLM-4V Plus（高级模型）",
+    "claude-sonnet-5.5": "Claude Sonnet 5.5（主力模型）",
+    "claude-opus-5.5": "Claude Opus 5.5（高级模型）",
 }
 
 # ---------------- 提示词 ----------------
@@ -101,8 +101,8 @@ LOCALIZE_PROMPT = AGENT_BASE + """
 # ---------------- 工具函数 ----------------
 
 def _key_ready():
-    """占位符 Key（含"你的真实Key"字样）视为未配置。"""
-    return "你的真实Key" not in API_KEY
+    """占位符 Key（含"你的"字样）视为未配置。"""
+    return "你的" not in API_KEY
 
 
 def _model_display(model):
@@ -126,7 +126,7 @@ def _extract_json(text):
 def _call_vision(image_url, prompt, model):
     """调用视觉模型（当前为智谱开放平台，OpenAI 兼容格式），返回 (ok, content, error, auth_error)。"""
     if not _key_ready():
-        return False, None, "API Key 未配置：请在项目目录的 .env 文件中填入真实的 ZHIPU_API_KEY（或修改 app.py 顶部的占位符）", True
+        return False, None, "API Key 未配置：请在项目目录的 .env 文件中填入真实的 CHATANYWHERE_API_KEY（或修改 app.py 顶部的占位符）", True
     payload = {
         "model": model,
         "messages": [{
@@ -143,7 +143,7 @@ def _call_vision(image_url, prompt, model):
     except requests.exceptions.RequestException as e:
         return False, None, f"网络请求失败：{e}", False
     if r.status_code == 401:
-        return False, None, "API Key 无效或无权限，请检查 .env 中的 ZHIPU_API_KEY（可到 open.bigmodel.cn 控制台查看）", True
+        return False, None, "API Key 无效或无权限，请检查 .env 中的 CHATANYWHERE_API_KEY（可到 chatanywhere.tech 控制台查看）", True
     if r.status_code == 404:
         return False, None, (f"模型 {model} 不存在（HTTP 404）：请确认该模型名可用，"
                              f"必要时修改 app.py 顶部的 MODEL_CHEAP / MODEL_STRONG。详情：{r.text[:150]}"), False
