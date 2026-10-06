@@ -1,0 +1,19 @@
+# 密钥文件（绝不上传代码仓库！）
+.env
+
+# 本地环境
+venv/
+__pycache__/
+*.pyc
+
+# IDE 配置
+.idea/
+
+# 无关练习文件
+main.py
+lesson1test.py
+AI agent/
+
+# 系统文件
+Thumbs.db
+.DS_Store

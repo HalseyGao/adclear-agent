@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AdClear Agent · 智能广告关闭 Agent</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+        font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+        background: #f0f2f8;
+        min-height: 100vh;
+        padding: 24px;
+    }
+    .topbar { max-width: 1200px; margin: 0 auto 20px; }
+    .topbar h1 {
+        font-size: 28px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        display: inline-block;
+    }
+    .topbar .tagline { font-size: 14px; color: #8a8f99; margin-top: 4px; }
+    .topbar .flow {
+        display: inline-block;
+        margin-left: 16px;
+        font-size: 12px;
+        color: #667eea;
+        background: #eceefd;
+        border-radius: 20px;
+        padding: 4px 12px;
+        vertical-align: 4px;
+    }
+    .layout {
+        max-width: 1200px;
+        margin: 0 auto;
+        display: flex;
+        gap: 32px;
+        align-items: flex-start;
+    }
+
+    /* ---------- 左侧：模拟手机 ---------- */
+    .phone-col { flex: 0 0 340px; text-align: center; }
+    .phone-frame {
+        position: relative;
+        background: #16161f;
+        border-radius: 48px;
+        padding: 14px;
+        box-shadow: 0 24px 60px rgba(30,30,60,0.28);
+    }
+    .phone-frame canvas {
+        display: block;
+        width: 100%;
+        height: auto;
+        border-radius: 34px;
+        background: #000;
+    }
+    .phone-toast {
+        position: absolute;
+        top: 46px;
+        left: 50%;
+        transform: translateX(-50%) translateY(-8px);
+        background: rgba(20,20,30,0.88);
+        color: #fff;
+        font-size: 15px;
+        padding: 10px 20px;
+        border-radius: 24px;
+        opacity: 0;
+        pointer-events: none;
+        transition: all 0.35s;
+        white-space: nowrap;
+        max-width: 88%;
+    }
+    .phone-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    .phone-hint { font-size: 12px; color: #a0a4b0; margin-top: 12px; }
+
+    /* ---------- 右侧：Agent 面板 ---------- */
+    .agent-col { flex: 1; min-width: 0; }
+    .card {
+        background: #fff;
+        border-radius: 20px;
+        padding: 26px 28px;
+        box-shadow: 0 8px 30px rgba(30,30,60,0.08);
+        margin-bottom: 20px;
+    }
+    .agent-intro { display: flex; gap: 16px; align-items: flex-start; }
+    .agent-avatar {
+        flex: 0 0 56px;
+        height: 56px;
+        border-radius: 18px;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 30px;
+    }
+    .agent-intro h2 { font-size: 20px; color: #2a2d3a; }
+    .agent-intro p { font-size: 14px; color: #6b6f7d; margin-top: 6px; line-height: 1.7; }
+
+    .controls { margin-top: 20px; }
+    .row { display: flex; gap: 12px; }
+    .btn {
+        border: none;
+        border-radius: 12px;
+        padding: 13px 20px;
+        font-size: 15px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-family: inherit;
+    }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn.open {
+        flex: 1;
+        background: #fff;
+        color: #667eea;
+        border: 2px solid #667eea;
+    }
+    .btn.open:hover:not(:disabled) { background: #f3f5ff; }
+    .btn.agent {
+        flex: 1.4;
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: #fff;
+        box-shadow: 0 6px 18px rgba(102,126,234,0.4);
+    }
+    .btn.agent:hover:not(:disabled) { opacity: 0.92; transform: translateY(-1px); }
+    .btn.small { padding: 9px 16px; font-size: 13px; background: #667eea; color: #fff; }
+
+    .cases { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .cases-label { font-size: 13px; color: #8a8f99; }
+    .chip {
+        border: 1.5px solid #dcdfea;
+        background: #fff;
+        color: #555a68;
+        border-radius: 18px;
+        padding: 6px 13px;
+        font-size: 12.5px;
+        cursor: pointer;
+        transition: all 0.15s;
+        font-family: inherit;
+    }
+    .chip:hover:not(:disabled) { border-color: #667eea; color: #667eea; }
+    .chip.active {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        border-color: transparent;
+        color: #fff;
+        font-weight: bold;
+    }
+    .chip:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* ---------- 状态时间线 ---------- */
+    .timeline { margin-top: 6px; }
+    .timeline-empty { font-size: 13.5px; color: #b3b7c3; padding: 6px 2px; }
+    .step {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 8px 10px;
+        border-radius: 10px;
+        font-size: 14px;
+        color: #3a3e4c;
+        line-height: 1.5;
+    }
+    .step .icon { flex: 0 0 24px; text-align: center; }
+    .step .text b { font-weight: 600; }
+    .step .sub { font-size: 12.5px; color: #9a9eac; margin-top: 2px; }
+    .step.current { background: #f4f5ff; }
+    .step.current .text::after {
+        content: '';
+        display: inline-block;
+        width: 8px; height: 8px;
+        margin-left: 8px;
+        border-radius: 50%;
+        background: #667eea;
+        animation: pulse 0.9s infinite;
+    }
+    @keyframes pulse { 0%,100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+    .banner {
+        margin-top: 16px;
+        padding: 14px 18px;
+        border-radius: 12px;
+        font-size: 15px;
+        font-weight: bold;
+        display: none;
+        line-height: 1.6;
+    }
+    .banner.success { display: block; background: #e8f9ee; color: #1d9e50; }
+    .banner.stop { display: block; background: #fff6e6; color: #c07d10; }
+    .banner.fail { display: block; background: #ffeceb; color: #d64541; }
+
+    /* ---------- Agent 思考日志 ---------- */
+    .agent-logs {
+        max-height: 340px;
+        overflow-y: auto;
+        font-size: 12.5px;
+        line-height: 1.8;
+        margin-top: 4px;
+    }
+    .log-line {
+        padding: 2px 6px;
+        border-radius: 6px;
+        font-family: Consolas, "Courier New", monospace;
+        word-break: break-all;
+    }
+    .log-line.log-agent { color: #4a5ac2; }
+    .log-line.log-decision { color: #c07d10; font-weight: bold; }
+    .log-line.log-result { color: #1d9e50; }
+    .log-line.log-error { color: #d64541; }
+
+    /* ---------- 开发者测试折叠区 ---------- */
+    .dev-panel summary {
+        cursor: pointer;
+        font-size: 13px;
+        color: #8a8f99;
+        user-select: none;
+    }
+    .dev-panel[open] summary { margin-bottom: 14px; }
+    .dev-hint { font-size: 12px; color: #b3b7c3; margin-bottom: 10px; }
+    .dev-panel input[type=file] { font-size: 12px; margin-bottom: 10px; display: block; }
+    .dev-row { display: flex; gap: 10px; align-items: center; }
+    .dev-preview-wrap { position: relative; display: none; margin-top: 14px; max-width: 320px; }
+    .dev-preview-wrap img { display: block; max-width: 100%; border-radius: 10px; }
+    .dev-box {
+        position: absolute;
+        border: 3px solid #ff3b30;
+        border-radius: 4px;
+        pointer-events: none;
+    }
+    .dev-box-label {
+        position: absolute;
+        background: #ff3b30;
+        color: #fff;
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 4px;
+        transform: translateY(-100%);
+        margin-top: -6px;
+        white-space: nowrap;
+        pointer-events: none;
+    }
+    .dev-result { font-size: 12.5px; color: #6b6f7d; margin-top: 10px; line-height: 1.6; }
+    .debug-toggle { font-size: 13px; color: #555a68; margin-top: 12px; display: flex; gap: 8px; align-items: center; cursor: pointer; }
+
+    @media (max-width: 900px) {
+        .layout { flex-direction: column; align-items: center; }
+        .phone-col { flex: none; width: 100%; max-width: 360px; }
+    }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+    <h1>🤖 AdClear Agent</h1><span class="flow">感知 → 决策 → 操作 → 验证</span>
+    <p class="tagline">面向无障碍场景的智能广告关闭 Agent · 帮助老年人和视障用户轻松跳过开屏广告</p>
+</div>
+
+<div class="layout">
+    <!-- ============ 左侧：模拟手机 ============ -->
+    <div class="phone-col">
+        <div class="phone-frame">
+            <canvas id="screen" width="720" height="1560"></canvas>
+            <div class="phone-toast" id="phoneToast"></div>
+        </div>
+        <p class="phone-hint">模拟手机 · 屏幕状态真实变化，非预录动画</p>
+    </div>
+
+    <!-- ============ 右侧：AdClear Agent 面板 ============ -->
+    <div class="agent-col">
+        <div class="card">
+            <div class="agent-intro">
+                <div class="agent-avatar">🤖</div>
+                <div>
+                    <h2>你好，我是 AdClear Agent</h2>
+                    <p>我可以帮助你识别并关闭 App 中难以发现的开屏广告。你只需要告诉我「帮我关闭这个广告」，剩下的交给我。</p>
+                </div>
+            </div>
+
+            <div class="controls">
+                <div class="row">
+                    <button class="btn open" id="openAppBtn">📱 打开 App</button>
+                    <button class="btn agent" id="agentBtn">🤖 让 Agent 帮我关闭</button>
+                </div>
+                <div class="cases">
+                    <span class="cases-label">广告案例：</span>
+                    <button class="chip" data-case="random">🎲 随机广告</button>
+                    <button class="chip" data-case="1">案例 1</button>
+                    <button class="chip" data-case="2">案例 2</button>
+                    <button class="chip" data-case="3">案例 3</button>
+                    <button class="chip" data-case="4">案例 4</button>
+                    <button class="chip" data-case="5">案例 5</button>
+                    <button class="chip" data-case="6">案例 6</button>
+                </div>
+            </div>
+
+            <div class="timeline" id="timeline">
+                <p class="timeline-empty">Agent 待命。点击「让 Agent 帮我关闭」开始演示。</p>
+            </div>
+            <div class="banner" id="banner"></div>
+        </div>
+
+        <details class="card agent-log-card" id="agentLogCard">
+            <summary>📋 Agent 思考日志</summary>
+            <div class="agent-logs" id="agentLogs">
+                <p class="timeline-empty">暂无日志。运行「让 Agent 帮我关闭」后，这里会实时显示 Agent 的每一步决策。</p>
+            </div>
+        </details>
+
+        <details class="card dev-panel">
+            <summary>🔧 开发者测试（图片识别）</summary>
+            <p class="dev-hint">原始截图识别接口，用于调试视觉模型，不属于主用户流程。</p>
+            <input type="file" id="devFile" accept="image/*">
+            <div class="dev-row">
+                <button class="btn small" id="devBtn">识别图片</button>
+                <label class="debug-toggle"><input type="checkbox" id="showTruth"> 在模拟手机上显示真实按钮位置（调试）</label>
+            </div>
+            <div class="dev-preview-wrap" id="devWrap">
+                <img id="devImg" alt="预览">
+            </div>
+            <div class="dev-result" id="devResult"></div>
+        </details>
+    </div>
+</div>
+
+<script>
+'use strict';
+/* ================================================================
+ * 模拟手机（Canvas 状态机）—— 屏幕状态真实变化
+ * 真实屏幕空间：720×1560；Agent 感知空间：720×720（压扁截图）
+ * ================================================================ */
+const canvas = document.getElementById('screen');
+const ctx = canvas.getContext('2d');
+const W = 720, H = 1560;               // 真实屏幕空间
+const AW = 720, AH = 720;              // Agent 感知空间（压扁）
+const K = AH / H;                      // 感知空间 → 真实空间映射系数（y 方向）
+const agentCanvas = document.createElement('canvas');
+agentCanvas.width = AW;
+agentCanvas.height = AH;
+const actx = agentCanvas.getContext('2d');
+
+let phoneState = 'idle';               // idle | home | ad
+let currentCase = null;                // 当前广告案例
+let agentRunning = false;
+let showTruth = false;
+let toastTimer = null;
+
+function rr(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+}
+
+/* ---------- 广告案例（含关闭按钮真实坐标 ground truth，真实屏幕空间） ---------- */
+const CASES = [
+    { id: 1, name: '案例 1 · 「跳过」按钮', dark: false,
+      bg1: '#134e5e', bg2: '#71b280', brandEmoji: '🛍️', brandName: '优选购', slogan: '好物天天有 · 惊喜不停歇',
+      imgC1: '#ff9966', imgC2: '#ff5e62', imgEmoji: '🎁',
+      btn: { type: 'skip', x: 552, y: 100, w: 148, h: 64, color: '#ffffff', label: '跳过' } },
+    { id: 2, name: '案例 2 · 倒计时「跳过 5」', dark: false,
+      bg1: '#0f2027', bg2: '#2c5364', brandEmoji: '🎬', brandName: '星看视频', slogan: '精彩内容 · 即刻上映',
+      imgC1: '#f7971e', imgC2: '#ffd200', imgEmoji: '🎥',
+      btn: { type: 'skip', x: 544, y: 100, w: 156, h: 64, color: '#ffffff', label: '跳过 5' } },
+    { id: 3, name: '案例 3 · 低对比度「跳过」', dark: false,
+      bg1: '#4a4a55', bg2: '#2f2f38', brandEmoji: '📱', brandName: '智联科技', slogan: '连接未来的每一种可能',
+      imgC1: '#555566', imgC2: '#333344', imgEmoji: '💡',
+      btn: { type: 'skipdim', x: 552, y: 100, w: 148, h: 64, color: '#9a9aa5', label: '跳过' } },
+    { id: 4, name: '案例 4 · 右上角白色 ×', dark: false,
+      bg1: '#1a2a6c', bg2: '#b21f1f', brandEmoji: '🎮', brandName: '星际冒险', slogan: '开启你的星际征途',
+      imgC1: '#8e2de2', imgC2: '#4a00e0', imgEmoji: '🚀',
+      btn: { type: 'x', x: 636, y: 96, w: 64, h: 64, color: '#ffffff', label: '×' } },
+    { id: 5, name: '案例 5 · 极小低对比度 ×（高难度）', dark: true,
+      bg1: '#e8e9ee', bg2: '#d4d6de', brandEmoji: '📰', brandName: '每日简讯', slogan: '三分钟 · 了解今天的世界',
+      imgC1: '#c9ccd5', imgC2: '#aab0bd', imgEmoji: '🌍',
+      btn: { type: 'x', x: 662, y: 96, w: 36, h: 36, color: '#c3c7d0', label: '×' } },
+    { id: 6, name: '案例 6 · 左上角 ×（高难度）', dark: false,
+      bg1: '#ff7e5f', bg2: '#feb47b', brandEmoji: '🍜', brandName: '面面香', slogan: '一碗好面 · 温暖每一天',
+      imgC1: '#43cea2', imgC2: '#185a9d', imgEmoji: '🍲',
+      btn: { type: 'x', x: 20, y: 96, w: 64, h: 64, color: '#ffffff', label: '×' } }
+];
+
+/* ---------- 各屏幕绘制 ---------- */
+function drawStatusBar() {
+    const lightBg = phoneState === 'home' || (phoneState === 'ad' && currentCase && currentCase.dark);
+    const fg = lightBg ? '#33363f' : 'rgba(255,255,255,0.92)';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.font = 'bold 30px "Microsoft YaHei", sans-serif';
+    ctx.fillStyle = fg;
+    ctx.fillText('10:28', 42, 26);
+    ctx.fillStyle = fg;
+    ctx.font = '24px "Microsoft YaHei", sans-serif';
+    ctx.fillText('5G', 576, 32);
+    for (let i = 0; i < 3; i++) {
+        ctx.fillRect(624 + i * 12, 58 - i * 8, 8, 12 + i * 8);
+    }
+    rr(672, 32, 34, 18, 4);
+    ctx.strokeStyle = fg; ctx.lineWidth = 3; ctx.stroke();
+    ctx.fillRect(676, 36, 18, 10);
+    ctx.fillRect(706, 37, 4, 8);
+}
+
+function drawIdle() {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#0f0c29');
+    g.addColorStop(0.6, '#302b63');
+    g.addColorStop(1, '#24243e');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '170px "Segoe UI", sans-serif';
+    ctx.fillText('10:28', W / 2, 580);
+    ctx.font = '40px "Microsoft YaHei", sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillText('10月5日 · 星期日', W / 2, 660);
+    ctx.font = '110px serif';
+    ctx.fillText('🔒', W / 2, 920);
+    ctx.font = '34px "Microsoft YaHei", sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.fillText('点击「打开 App」开始演示', W / 2, 1080);
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.font = '28px "Microsoft YaHei", sans-serif';
+    ctx.fillText('AdClear 演示机', W / 2, 1490);
+    drawStatusBar();
+}
+
+function drawHome() {
+    ctx.fillStyle = '#f2f3f5';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, 150);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#1a1a2e';
+    ctx.font = 'bold 44px "Microsoft YaHei", sans-serif';
+    ctx.fillText('今日资讯', 40, 102);
+    const g = ctx.createLinearGradient(0, 170, 0, 560);
+    g.addColorStop(0, '#c33764');
+    g.addColorStop(1, '#1d2671');
+    ctx.fillStyle = g;
+    rr(30, 170, W - 60, 390, 30);
+    ctx.fill();
+    ctx.textAlign = 'center';
+    ctx.font = '150px serif';
+    ctx.fillText('📰', W / 2, 390);
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.font = 'bold 38px "Microsoft YaHei", sans-serif';
+    ctx.fillText('今日头条 · 城市新鲜事', W / 2, 510);
+    const items = [
+        { e: '🏙️', c: '民生频道' },
+        { e: '💻', c: '科技频道' },
+        { e: '⚽', c: '体育频道' },
+        { e: '🏛️', c: '文化频道' }
+    ];
+    items.forEach((it, i) => {
+        const y = 600 + i * 190;
+        ctx.fillStyle = '#ffffff';
+        rr(30, y, W - 60, 160, 24);
+        ctx.fill();
+        ctx.fillStyle = '#e4e6eb';
+        rr(56, y + 24, 140, 112, 16);
+        ctx.fill();
+        ctx.font = '42px serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(it.e, 126, y + 88);
+        ctx.fillStyle = '#c8ccd4';
+        rr(220, y + 32, 300, 24, 12); ctx.fill();
+        rr(220, y + 74, 420, 24, 12); ctx.fill();
+        rr(220, y + 116, 240, 24, 12); ctx.fill();
+        ctx.fillStyle = '#8a8f99';
+        ctx.font = '24px "Microsoft YaHei", sans-serif';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(it.c, 220, y + 152);
+    });
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 1400, W, 160);
+    const tabs = [['🏠', '首页'], ['📺', '视频'], ['👤', '我的']];
+    tabs.forEach((t, i) => {
+        const cx = W / 6 + (W / 3) * i;
+        ctx.textAlign = 'center';
+        ctx.font = '40px serif';
+        ctx.fillText(t[0], cx, 1448);
+        ctx.fillStyle = i === 0 ? '#667eea' : '#9a9eac';
+        ctx.font = '22px "Microsoft YaHei", sans-serif';
+        ctx.fillText(t[1], cx, 1520);
+    });
+    drawStatusBar();
+}
+
+function drawBtn(b) {
+    if (b.type === 'x') {
+        ctx.strokeStyle = b.color;
+        ctx.lineWidth = b.w >= 60 ? 8 : 5;
+        ctx.lineCap = 'round';
+        const cx = b.x + b.w / 2, cy = b.y + b.h / 2, r = b.w / 2 - 10;
+        ctx.beginPath();
+        ctx.moveTo(cx - r, cy - r); ctx.lineTo(cx + r, cy + r);
+        ctx.moveTo(cx + r, cy - r); ctx.lineTo(cx - r, cy + r);
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+    } else {
+        const dim = b.type === 'skipdim';
+        ctx.fillStyle = dim ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.35)';
+        rr(b.x, b.y, b.w, b.h, b.h / 2);
+        ctx.fill();
+        ctx.strokeStyle = dim ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.65)';
+        ctx.lineWidth = 2;
+        rr(b.x, b.y, b.w, b.h, b.h / 2);
+        ctx.stroke();
+        ctx.fillStyle = b.color;
+        ctx.font = 'bold 32px "Microsoft YaHei", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + 2);
+        ctx.textBaseline = 'alphabetic';
+    }
+}
+
+function drawAd(c) {
+    const fg = c.dark ? '#33363f' : '#ffffff';
+    const g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, c.bg1);
+    g.addColorStop(1, c.bg2);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = '130px serif';
+    ctx.fillText(c.brandEmoji, W / 2, 420);
+    ctx.fillStyle = fg;
+    ctx.font = 'bold 58px "Microsoft YaHei", sans-serif';
+    ctx.fillText(c.brandName, W / 2, 560);
+    ctx.fillStyle = c.dark ? 'rgba(51,54,63,0.75)' : 'rgba(255,255,255,0.8)';
+    ctx.font = '32px "Microsoft YaHei", sans-serif';
+    ctx.fillText(c.slogan, W / 2, 626);
+    const g2 = ctx.createLinearGradient(0, 760, W, 1320);
+    g2.addColorStop(0, c.imgC1);
+    g2.addColorStop(1, c.imgC2);
+    ctx.fillStyle = g2;
+    rr(60, 760, W - 120, 560, 40);
+    ctx.fill();
+    ctx.font = '210px serif';
+    ctx.fillText(c.imgEmoji, W / 2, 1110);
+    ctx.fillStyle = fg;
+    ctx.font = 'bold 46px "Microsoft YaHei", sans-serif';
+    ctx.fillText('立即下载 App', W / 2, 1450);
+    drawBtn(c.btn);
+    if (showTruth) drawTruthBox(c);
+    drawStatusBar();
+}
+
+function drawTruthBox(c) {
+    const b = c.btn;
+    ctx.strokeStyle = '#2e8bff';
+    ctx.lineWidth = 4;
+    ctx.setLineDash([14, 10]);
+    rr(b.x - 10, b.y - 10, b.w + 20, b.h + 20, 10);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font = 'bold 26px "Microsoft YaHei", sans-serif';
+    const t = '真实按钮';
+    const tw = ctx.measureText(t).width;
+    ctx.fillStyle = 'rgba(46,139,255,0.92)';
+    rr(b.x - 10, b.y - 10 - 46, tw + 24, 40, 8);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(t, b.x - 10 + 12, b.y - 10 - 25);
+    ctx.textBaseline = 'alphabetic';
+}
+
+function drawScreen() {
+    if (phoneState === 'idle') drawIdle();
+    else if (phoneState === 'home') drawHome();
+    else if (phoneState === 'ad' && currentCase) drawAd(currentCase);
+}
+
+/* ---------- 截图（Agent 感知空间：压扁为 720×720） ---------- */
+function captureScreen() {
+    actx.drawImage(canvas, 0, 0, W, H, 0, 0, AW, AH);
+    return agentCanvas.toDataURL('image/jpeg', 0.85);
+}
+
+function showToast(text) {
+    const el = document.getElementById('phoneToast');
+    el.textContent = text;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+/* Agent 感知空间 bbox → 真实屏幕空间 */
+function agentToReal(bbox) {
+    return [bbox[0], bbox[1] / K, bbox[2], bbox[3] / K];
+}
+
+function drawDetectedBox(agentBbox) {
+    drawScreen();
+    const [x1, y1, x2, y2] = agentToReal(agentBbox);
+    ctx.strokeStyle = '#ff3b30';
+    ctx.lineWidth = 6;
+    rr(x1, y1, x2 - x1, y2 - y1, 12);
+    ctx.stroke();
+    const text = 'Detected close button';
+    ctx.font = 'bold 30px "Microsoft YaHei", sans-serif';
+    const tw = ctx.measureText(text).width;
+    const ly = Math.max(y1 - 16, 96);
+    ctx.fillStyle = 'rgba(255,59,48,0.92)';
+    rr(x1, ly - 36, tw + 28, 46, 10);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x1 + 14, ly - 12);
+    ctx.textBaseline = 'alphabetic';
+}
+
+function animateClick(px, py) {
+    return new Promise(resolve => {
+        const t0 = performance.now();
+        const dur = 700;
+        function frame(now) {
+            const t = Math.min((now - t0) / dur, 1);
+            drawScreen();
+            const r = 20 + t * 95;
+            ctx.beginPath();
+            ctx.arc(px, py, r, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(255,69,58,' + (1 - t) + ')';
+            ctx.lineWidth = 6;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(px, py, 16 * (1 - t * 0.4), 0, Math.PI * 2);
+            ctx.fillStyle = 'rgba(255,69,58,' + (0.9 - t * 0.5) + ')';
+            ctx.fill();
+            if (t < 1) requestAnimationFrame(frame);
+            else { drawScreen(); resolve(); }
+        }
+        requestAnimationFrame(frame);
+    });
+}
+
+/* 命中判定：Agent 感知空间点 vs 感知空间真值矩形 */
+function hitTest(apx, apy) {
+    const b = currentCase.btn;
+    const pad = 16;
+    return apx >= b.x - pad && apx <= b.x + b.w + pad &&
+           apy >= b.y * K - pad && apy <= (b.y + b.h) * K + pad;
+}
+
+/* ================================================================
+ * Agent 循环：感知 → 决策 → 操作 → 验证
+ * ================================================================ */
+const CONF_THRESHOLD = 0.7;
+const MAX_ANALYZE = 3;   // 最多 3 次分析（常规 → 带提示重试 → 更强模型）
+const MAX_CLICKS = 2;    // 最多 2 次点击尝试
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+const timeline = document.getElementById('timeline');
+const banner = document.getElementById('banner');
+const agentLogBox = document.getElementById('agentLogs');
+
+function clearTimeline() {
+    timeline.innerHTML = '';
+    banner.className = 'banner';
+    banner.style.display = 'none';
+    // 同时清空思考日志
+    agentLogBox.innerHTML = '<p class="timeline-empty">暂无日志。</p>';
+}
+
+function appendAgentLogs(logs) {
+    if (!logs || !logs.length) return;
+    const empty = agentLogBox.querySelector('.timeline-empty');
+    if (empty) empty.remove();
+    logs.forEach(line => {
+        const div = document.createElement('div');
+        if (line.startsWith('[Agent 决策]')) div.className = 'log-line log-decision';
+        else if (line.startsWith('[错误]')) div.className = 'log-line log-error';
+        else if (line.startsWith('[结果]')) div.className = 'log-line log-result';
+        else div.className = 'log-line log-agent';
+        div.textContent = line;
+        agentLogBox.appendChild(div);
+        agentLogBox.scrollTop = agentLogBox.scrollHeight;
+    });
+}
+
+function addStatus(icon, text, sub) {
+    const step = document.createElement('div');
+    step.className = 'step current';
+    step.innerHTML = '<span class="icon">' + icon + '</span><div class="text"><b>' +
+        text + '</b>' + (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>';
+    const prev = timeline.querySelector('.step.current');
+    if (prev) prev.classList.remove('current');
+    timeline.appendChild(step);
+}
+
+function finishRun(type, msg) {
+    banner.className = 'banner ' + type;
+    banner.textContent = msg;
+    const cur = timeline.querySelector('.step.current');
+    if (cur) cur.classList.remove('current');
+    agentRunning = false;
+    setButtons(false);
+}
+
+function safetyStop(msg) {
+    addStatus('⛔', '为避免误操作，Agent 暂停操作', msg);
+    showToast('Agent 已暂停');
+    finishRun('stop', '⛔ ' + msg + '（未执行任何点击）');
+}
+
+function setButtons(running) {
+    document.getElementById('openAppBtn').disabled = running;
+    document.getElementById('agentBtn').disabled = running;
+    document.querySelectorAll('.chip').forEach(c => c.disabled = running);
+}
+
+async function perceive(img, mode) {
+    try {
+        const resp = await fetch('/agent/perceive', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: img, mode: mode, width: AW, height: AH })
+        });
+        return await resp.json();
+    } catch (e) {
+        return { ok: false, auth_error: false, error: '无法连接后端服务：' + e.message };
+    }
+}
+
+/* 感知空间 bbox 合理性检查：范围合法、面积不能过大（如整屏框） */
+function validAgentBbox(bbox) {
+    if (!bbox || bbox.length !== 4) return null;
+    const [x1, y1, x2, y2] = bbox.map(v => Math.min(Math.max(v, 0), v));
+    const c1 = Math.min(Math.max(x1, 0), AW), c3 = Math.min(Math.max(x2, c1), AW);
+    const c2 = Math.min(Math.max(y1, 0), AH), c4 = Math.min(Math.max(y2, c2), AH);
+    if (c3 - c1 < 6 || c4 - c2 < 6) return null;             // 过小：退化框
+    if ((c3 - c1) * (c4 - c2) > AW * AH * 0.3) return null; // 过大：整屏框
+    return [c1, c2, c3, c4];
+}
+
+async function runAgent() {
+    if (agentRunning) return;
+    if (phoneState !== 'ad') {
+        clearTimeline();
+        addStatus('✓', '当前屏幕没有开屏广告', '无需操作');
+        return;
+    }
+    agentRunning = true;
+    setButtons(true);
+    clearTimeline();
+    addStatus('🟢', '正在感知屏幕', '正在获取当前模拟手机屏幕截图……');
+    await sleep(500);
+
+    let analyzeCount = 0;
+    let clickCount = 0;
+    let adReported = false;
+
+    while (true) {
+        const mode = analyzeCount === 0 ? 'detect' : (analyzeCount === 1 ? 'retry' : 'escalate');
+        const res = await perceive(captureScreen(), mode);
+        analyzeCount++;
+        appendAgentLogs(res.agent_logs);
+
+        // ---- 调用失败 ----
+        if (!res.ok) {
+            if (res.auth_error) {
+                addStatus('⛔', '无法调用视觉模型', res.error);
+                finishRun('fail', '⛔ ' + res.error);
+                return;
+            }
+            addStatus('⚠', '视觉模型响应异常', '正在重新分析……');
+            if (analyzeCount >= MAX_ANALYZE) {
+                safetyStop('多次分析未能得到有效结果');
+                return;
+            }
+            continue;
+        }
+
+        // ---- 无广告 ----
+        if (!res.has_ad) {
+            if (clickCount > 0) {
+                addStatus('✓', '广告已成功关闭');
+                showToast('✓ Advertisement closed');
+                finishRun('success', '✅ Agent 已确认：广告已成功关闭');
+            } else {
+                addStatus('✓', '当前屏幕没有开屏广告', '无需操作');
+                finishRun('ok', '');
+            }
+            return;
+        }
+
+        // ---- 有广告 ----
+        if (!adReported) {
+            addStatus('✓', '检测到疑似开屏广告', res.reason ? '依据：' + res.reason : '');
+            addStatus('🔎', '正在寻找关闭方式');
+            adReported = true;
+        }
+
+        if (!res.bbox) {
+            addStatus('⚠', '未能可靠定位关闭按钮', '正在重新分析……');
+            if (analyzeCount >= MAX_ANALYZE) {
+                safetyStop('无法可靠确定关闭位置');
+                return;
+            }
+            continue;
+        }
+
+        if (res.confidence < CONF_THRESHOLD) {
+            addStatus('⚠', '识别结果不够可靠', '置信度 ' + Math.round(res.confidence * 100) + '%，正在重新分析……');
+            if (analyzeCount >= MAX_ANALYZE) {
+                safetyStop('多次分析仍无法可靠确定关闭位置');
+                return;
+            }
+            continue;
+        }
+
+        const safeBbox = validAgentBbox(res.bbox);
+        if (!safeBbox) {
+            addStatus('⚠', '定位结果不合理', '正在重新分析……');
+            if (analyzeCount >= MAX_ANALYZE) {
+                safetyStop('无法可靠确定关闭位置');
+                return;
+            }
+            continue;
+        }
+
+        // ---- 决策通过，执行点击 ----
+        addStatus('✓', '找到候选关闭按钮', '“' + (res.label || '关闭按钮') + '”（模型：' + (res.used_model || '未知') + '，置信度 ' + Math.round(res.confidence * 100) + '%）');
+        addStatus('🎯', '已确定关闭位置');
+        const apx = (safeBbox[0] + safeBbox[2]) / 2;
+        const apy = (safeBbox[1] + safeBbox[3]) / 2;
+        drawDetectedBox(safeBbox);
+        await sleep(1000);
+        addStatus('🖱', '正在执行关闭操作');
+        const [cpx, cpy] = agentToReal([apx, apy, apx, apy]);
+        await animateClick(cpx, cpy);
+        clickCount++;
+
+        if (hitTest(apx, apy)) {
+            // 命中：广告真实关闭
+            addStatus('✓', '点击已生效', '广告正在退出……');
+            phoneState = 'home';
+            drawScreen();
+            await sleep(700);
+            addStatus('🔍', '正在验证结果', '再次观察屏幕，确认广告状态……');
+            const v = await perceive(captureScreen(), 'verify');
+            if (v.ok && !v.has_ad) {
+                addStatus('✓', '广告已成功关闭');
+                showToast('✓ Advertisement closed');
+                finishRun('success', '✅ Agent 已确认：广告已成功关闭');
+                return;
+            }
+            if (v.ok && v.has_ad) {
+                addStatus('⚠', '验证结果存疑', '正在再次复查屏幕……');
+                await sleep(600);
+                const v2 = await perceive(captureScreen(), 'verify');
+                if (v2.ok && !v2.has_ad) {
+                    addStatus('✓', '广告已成功关闭');
+                    showToast('✓ Advertisement closed');
+                    finishRun('success', '✅ Agent 已确认：广告已成功关闭');
+                    return;
+                }
+                safetyStop('已执行关闭操作，但视觉验证未能完全确认');
+                return;
+            }
+            addStatus('⚠', '验证未完成', v.error || '验证调用失败');
+            safetyStop('已执行关闭操作，但视觉验证未完成，请人工确认屏幕状态');
+            return;
+        } else {
+            addStatus('⚠', '点击未命中关闭按钮', '广告仍在屏幕上，正在重新分析……');
+            if (clickCount >= MAX_CLICKS) {
+                safetyStop('多次尝试未能关闭广告');
+                return;
+            }
+        }
+    }
+}
+
+/* ================================================================
+ * 交互
+ * ================================================================ */
+document.getElementById('agentBtn').addEventListener('click', runAgent);
+
+document.getElementById('openAppBtn').addEventListener('click', async () => {
+    if (agentRunning) return;
+    clearTimeline();
+    setButtons(true);
+    if (phoneState === 'idle') {
+        phoneState = 'home';
+        drawScreen();
+        await sleep(900);   // 短暂展示 App 首页，模拟启动过程
+    }
+    if (!currentCase) currentCase = CASES[Math.floor(Math.random() * CASES.length)];
+    phoneState = 'ad';
+    drawScreen();
+    highlightCase(currentCase.id);
+    setButtons(false);
+});
+
+document.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+        if (agentRunning) return;
+        const val = chip.dataset.case;
+        if (val === 'random') {
+            let pick;
+            do { pick = CASES[Math.floor(Math.random() * CASES.length)]; }
+            while (CASES.length > 1 && currentCase && pick.id === currentCase.id);
+            currentCase = pick;
+        } else {
+            currentCase = CASES.find(c => c.id === Number(val));
+        }
+        phoneState = 'ad';
+        drawScreen();
+        clearTimeline();
+        highlightCase(currentCase.id);
+    });
+});
+
+function highlightCase(id) {
+    document.querySelectorAll('.chip').forEach(c => {
+        c.classList.toggle('active', c.dataset.case === String(id));
+    });
+}
+
+document.getElementById('showTruth').addEventListener('change', e => {
+    showTruth = e.target.checked;
+    drawScreen();
+});
+
+/* ---------- 开发者测试：原始图片识别 ---------- */
+const devFile = document.getElementById('devFile');
+const devBtn = document.getElementById('devBtn');
+const devWrap = document.getElementById('devWrap');
+const devImg = document.getElementById('devImg');
+const devResult = document.getElementById('devResult');
+
+devBtn.addEventListener('click', async () => {
+    if (!devFile.files.length) {
+        devResult.textContent = '请先选择一张图片';
+        return;
+    }
+    const file = devFile.files[0];
+    const dataUrl = await new Promise(res => {
+        const rd = new FileReader();
+        rd.onload = () => res(rd.result);
+        rd.readAsDataURL(file);
+    });
+    devImg.src = dataUrl;
+    await new Promise(res => { devImg.onload = res; });
+    devWrap.style.display = 'block';
+    devWrap.querySelectorAll('.dev-box, .dev-box-label').forEach(el => el.remove());
+    devResult.textContent = '识别中……';
+    try {
+        const resp = await fetch('/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: dataUrl })
+        });
+        const data = await resp.json();
+        if (data.bbox && data.bbox.length === 4) {
+            const sx = devImg.clientWidth / devImg.naturalWidth;
+            const sy = devImg.clientHeight / devImg.naturalHeight;
+            const box = document.createElement('div');
+            box.className = 'dev-box';
+            box.style.left = (data.bbox[0] * sx) + 'px';
+            box.style.top = (data.bbox[1] * sy) + 'px';
+            box.style.width = ((data.bbox[2] - data.bbox[0]) * sx) + 'px';
+            box.style.height = ((data.bbox[3] - data.bbox[1]) * sy) + 'px';
+            devWrap.appendChild(box);
+            const lbl = document.createElement('div');
+            lbl.className = 'dev-box-label';
+            lbl.style.left = (data.bbox[0] * sx) + 'px';
+            lbl.style.top = (data.bbox[1] * sy) + 'px';
+            lbl.textContent = (data.label || '按钮') + (data.confidence ? ' ' + Math.round(data.confidence * 100) + '%' : '');
+            devWrap.appendChild(lbl);
+            devResult.textContent = '✓ 识别到按钮：bbox=[' + data.bbox.join(',') + ']';
+        } else {
+            devResult.textContent = '未找到按钮' + (data.error ? '（' + data.error + '）' : '') +
+                (data.raw ? '，模型原始输出：' + data.raw : '');
+        }
+    } catch (e) {
+        devResult.textContent = '请求失败：' + e.message;
+    }
+});
+
+/* ---------- 初始化 ---------- */
+drawScreen();
+</script>
+</body>
+</html>
