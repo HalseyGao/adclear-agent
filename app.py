@@ -111,16 +111,118 @@ def _model_display(model):
     return MODEL_DISPLAY.get(model, model)
 
 
-def _extract_json(text):
-    """从模型输出中提取第一个 JSON 对象，失败返回 None。"""
-    match = re.search(r'\{.*\}', text, re.S)
-    if not match:
-        return None
-    for candidate in (match.group(), re.sub(r'```(json)?', '', match.group())):
+def _extract_balanced(text):
+    """从文本中提取第一个『括号配平』的 JSON 对象（跳过字符串内的括号）。"""
+    start = text.find('{')
+    while start != -1:
+        depth = 0
+        in_str = False
+        escape = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if in_str:
+                if escape:
+                    escape = False
+                elif ch == '\\':
+                    escape = True
+                elif ch == '"':
+                    in_str = False
+            else:
+                if ch == '"':
+                    in_str = True
+                elif ch == '{':
+                    depth += 1
+                elif ch == '}':
+                    depth -= 1
+                    if depth == 0:
+                        return text[start:i + 1]
+        start = text.find('{', start + 1)
+    return None
+
+
+def _escape_newlines_in_strings(s):
+    """把引号字符串内部的裸换行转义为 \\n（模型偶尔在 reason 里直接换行）。"""
+    out = []
+    in_str = False
+    escape = False
+    for ch in s:
+        if in_str:
+            if escape:
+                out.append(ch)
+                escape = False
+            elif ch == '\\':
+                out.append(ch)
+                escape = True
+            elif ch == '"':
+                out.append(ch)
+                in_str = False
+            elif ch in '\r\n':
+                out.append('\\n')
+            else:
+                out.append(ch)
+        else:
+            if ch == '"':
+                in_str = True
+            out.append(ch)
+    return ''.join(out)
+
+
+def _normalize_punct(s):
+    """全角标点归一化（模型用中文标点输出 JSON 时救回来）。"""
+    table = {'：': ':', '，': ',', '；': ';', '（': '(', '）': ')', '【': '[', '】': ']'}
+    for k, v in table.items():
+        s = s.replace(k, v)
+    return s
+
+
+def _try_loads(s):
+    """宽松解析字符串为 dict：把各修复手段按任意组合叠加后逐一尝试。"""
+    transforms = (
+        _normalize_punct,                                              # 全角标点归一化
+        _escape_newlines_in_strings,                                   # 字符串内裸换行转义
+        lambda x: re.sub(r',\s*([}\]])', r'\1', x),                    # 去尾逗号
+        lambda x: x.replace('“', '"').replace('”', '"')                # 中文引号
+                   .replace('‘', "'").replace('’', "'"),
+    )
+    current = {s}
+    for t in transforms:
+        for v in list(current):
+            current.add(t(v))
+    for v in current:
         try:
-            return json.loads(candidate)
+            obj = json.loads(v)
+            if isinstance(obj, dict):
+                return obj
         except (json.JSONDecodeError, ValueError):
             continue
+    return None
+
+
+def _extract_json(text):
+    """从模型输出中尽量鲁棒地提取第一个 JSON 对象，失败返回 None。
+
+    容错场景：markdown 代码块围栏（```json ... ```）、JSON 前后有解释性文字、
+    尾逗号、中文引号、字符串内含有 } 等。
+    """
+    if not text:
+        return None
+    candidates = []
+    # 1) 整段就是 JSON
+    candidates.append(text.strip())
+    # 2) 去掉 markdown 围栏后的整段
+    candidates.append(re.sub(r'```[a-zA-Z]*\s*', '', text).strip())
+    # 3) 括号配平提取（JSON 前后混有文字时）
+    balanced = _extract_balanced(text)
+    if balanced:
+        candidates.append(balanced)
+    # 4) 兜底：贪婪正则（第一个 { 到最后一个 }）
+    m = re.search(r'\{.*\}', text, re.S)
+    if m:
+        candidates.append(m.group())
+    for c in candidates:
+        result = _try_loads(c)
+        if result is not None:
+            return result
     return None
 
 
@@ -136,7 +238,9 @@ def _call_vision(image_url, prompt, model):
                 {"type": "image_url", "image_url": {"url": image_url}},
                 {"type": "text", "text": prompt}
             ]
-        }]
+        }],
+        # 要求模型输出纯 JSON（已实测 ChatAnywhere 支持；即使模型仍加围栏，解析器也能容错）
+        "response_format": {"type": "json_object"}
     }
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
     try:
@@ -331,20 +435,11 @@ def agent_perceive():
     size_text = f"{int(width or 720)}×{int(height or 1560)}"
 
     if mode == 'verify':
+        # 验证也走分层决策：快速模型解析失败或判断存疑时自动升级，避免前端卡死在"验证未完成"
         prompt = VERIFY_PROMPT.replace("{SIZE}", size_text)
         logs = [f"[Agent] 正在调用快速模型 ({_model_display(MODEL_CHEAP)}) 验证屏幕状态..."]
-        ok, content, error, auth_error = _call_vision(img, prompt, MODEL_CHEAP)
-        if not ok:
-            return jsonify({"ok": False, "auth_error": auth_error, "error": error,
-                            "used_model": MODEL_CHEAP,
-                            "agent_logs": logs + [f"[错误] {error}"]})
-        parsed = _extract_json(content)
-        if parsed is None:
-            return jsonify({"ok": False, "auth_error": False, "error": "模型输出无法解析为 JSON",
-                            "used_model": MODEL_CHEAP, "agent_logs": logs, "raw": content[:300]})
-        resp = _normalize(parsed, width, height)
-        resp["used_model"] = MODEL_CHEAP
-        resp["agent_logs"] = logs + ["[结果] 屏幕状态验证完成。"]
+        resp = _perceive_with_ladder(img, prompt, width, height)
+        resp["agent_logs"] = logs + resp.get("agent_logs", [])
         return jsonify(resp)
 
     if mode == 'escalate':
@@ -371,8 +466,10 @@ def agent_perceive():
 
 
 if __name__ == '__main__':
-    # 平时开发用 debug 模式（自动热重载）；对外公开演示时用 --no-debug 关闭
-    # 例如：python app.py --no-debug
-    # extra_files 让 debug 模式同时监视 .env：改完密钥保存后服务自动重载，无需手动重启
-    app.run(host='0.0.0.0', port=5000, debug='--no-debug' not in sys.argv,
-            extra_files=['.env'] if '--no-debug' not in sys.argv else None)
+    # 本地开发：python app.py（debug 自动热重载 + 监视 .env）
+    # 本地/演示关闭 debug：python app.py --no-debug
+    # 云端（腾讯云 SCF Web 函数）：设环境变量 PORT=9000、FLASK_DEBUG=0，启动命令用 python app.py
+    port = int(os.environ.get("PORT", "5000"))
+    debug = os.environ.get("FLASK_DEBUG", "") != "0" and '--no-debug' not in sys.argv
+    app.run(host='0.0.0.0', port=port, debug=debug, threaded=True,
+            extra_files=['.env'] if debug else None)
