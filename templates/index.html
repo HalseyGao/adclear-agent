@@ -209,24 +209,51 @@
     .log-line.log-result { color: #1d9e50; }
     .log-line.log-error { color: #d64541; }
 
-    /* ---------- 开发者测试折叠区 ---------- */
-    .dev-panel summary {
-        cursor: pointer;
-        font-size: 13px;
-        color: #8a8f99;
-        user-select: none;
+    /* ---------- 真实广告截图测试（正式功能区） ---------- */
+    .dev-card { border: 2px solid #dcdff5; }
+    .dev-title {
+        font-size: 17px;
+        color: #2a2d3a;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 4px;
     }
-    .dev-panel[open] summary { margin-bottom: 14px; }
-    .dev-hint { font-size: 12px; color: #b3b7c3; margin-bottom: 10px; }
-    .dev-panel input[type=file] { font-size: 12px; margin-bottom: 10px; display: block; }
-    .dev-row { display: flex; gap: 10px; align-items: center; }
-    .dev-preview-wrap { position: relative; display: none; margin-top: 14px; max-width: 320px; }
-    .dev-preview-wrap img { display: block; max-width: 100%; border-radius: 10px; }
+    .dev-title::after {
+        content: '与模拟手机同一套 Agent 管线';
+        font-size: 11px;
+        font-weight: normal;
+        color: #667eea;
+        background: #eceefd;
+        border-radius: 12px;
+        padding: 3px 10px;
+    }
+    .dev-sub { font-size: 13px; color: #8a8f99; line-height: 1.6; margin-bottom: 14px; }
+    .drop-zone {
+        border: 2px dashed #c3c3e5;
+        border-radius: 12px;
+        padding: 22px 16px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.2s;
+        color: #888;
+        font-size: 13.5px;
+    }
+    .drop-zone:hover, .drop-zone.dragover {
+        border-color: #667eea;
+        background: #f5f6ff;
+        color: #667eea;
+    }
+    .dev-row { display: flex; gap: 12px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+    .btn.dev-btn { background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; padding: 10px 20px; font-size: 14px; }
+    .dev-preview-wrap { position: relative; display: none; margin-top: 14px; max-width: 300px; }
+    .dev-preview-wrap img { display: block; max-width: 100%; border-radius: 10px; box-shadow: 0 4px 16px rgba(30,30,60,0.15); }
     .dev-box {
         position: absolute;
         border: 3px solid #ff3b30;
         border-radius: 4px;
         pointer-events: none;
+        box-shadow: 0 0 0 2px rgba(255,59,48,0.35);
     }
     .dev-box-label {
         position: absolute;
@@ -240,8 +267,9 @@
         white-space: nowrap;
         pointer-events: none;
     }
-    .dev-result { font-size: 12.5px; color: #6b6f7d; margin-top: 10px; line-height: 1.6; }
-    .debug-toggle { font-size: 13px; color: #555a68; margin-top: 12px; display: flex; gap: 8px; align-items: center; cursor: pointer; }
+    .dev-result { font-size: 13px; color: #3a3e4c; margin-top: 12px; line-height: 1.7; }
+    .dev-logs { margin-top: 6px; max-height: 160px; }
+    .debug-toggle { font-size: 13px; color: #555a68; display: flex; gap: 8px; align-items: center; cursor: pointer; }
 
     @media (max-width: 900px) {
         .layout { flex-direction: column; align-items: center; }
@@ -307,19 +335,23 @@
             </div>
         </details>
 
-        <details class="card dev-panel">
-            <summary>🔧 开发者测试（图片识别）</summary>
-            <p class="dev-hint">原始截图识别接口，用于调试视觉模型，不属于主用户流程。</p>
-            <input type="file" id="devFile" accept="image/*">
+        <div class="card dev-card">
+            <h3 class="dev-title">📷 真实广告截图测试</h3>
+            <p class="dev-sub">上传你自己的开屏广告截图，Agent 使用与模拟手机完全相同的「分层检测」流程寻找关闭按钮。</p>
+            <div class="drop-zone" id="devDrop">
+                点击选择截图，或将图片拖到这里
+                <input type="file" id="devFile" accept="image/*" hidden>
+            </div>
             <div class="dev-row">
-                <button class="btn small" id="devBtn">识别图片</button>
-                <label class="debug-toggle"><input type="checkbox" id="showTruth"> 在模拟手机上显示真实按钮位置（调试）</label>
+                <button class="btn dev-btn" id="devBtn">🔍 开始检测</button>
+                <label class="debug-toggle"><input type="checkbox" id="showTruth"> 在模拟手机广告上显示真实按钮位置（调试）</label>
             </div>
             <div class="dev-preview-wrap" id="devWrap">
                 <img id="devImg" alt="预览">
             </div>
             <div class="dev-result" id="devResult"></div>
-        </details>
+            <div class="agent-logs dev-logs" id="devLogs"></div>
+        </div>
     </div>
 </div>
 
@@ -946,12 +978,26 @@ document.getElementById('showTruth').addEventListener('change', e => {
     drawScreen();
 });
 
-/* ---------- 开发者测试：原始图片识别 ---------- */
+/* ---------- 真实广告截图测试（与模拟手机同管线：压扁感知空间 + 分层 Agent） ---------- */
 const devFile = document.getElementById('devFile');
 const devBtn = document.getElementById('devBtn');
 const devWrap = document.getElementById('devWrap');
 const devImg = document.getElementById('devImg');
 const devResult = document.getElementById('devResult');
+const devLogs = document.getElementById('devLogs');
+const devDrop = document.getElementById('devDrop');
+
+devDrop.addEventListener('click', () => devFile.click());
+devDrop.addEventListener('dragover', e => {
+    e.preventDefault();
+    devDrop.classList.add('dragover');
+});
+devDrop.addEventListener('dragleave', () => devDrop.classList.remove('dragover'));
+devDrop.addEventListener('drop', e => {
+    e.preventDefault();
+    devDrop.classList.remove('dragover');
+    if (e.dataTransfer.files.length) devFile.files = e.dataTransfer.files;
+});
 
 devBtn.addEventListener('click', async () => {
     if (!devFile.files.length) {
@@ -968,39 +1014,68 @@ devBtn.addEventListener('click', async () => {
     await new Promise(res => { devImg.onload = res; });
     devWrap.style.display = 'block';
     devWrap.querySelectorAll('.dev-box, .dev-box-label').forEach(el => el.remove());
-    devResult.textContent = '识别中……';
+    devResult.innerHTML = '识别中……';
+    devLogs.innerHTML = '';
+
+    // 与模拟手机完全一致：把截图压成 720×720 感知空间再交给 Agent
+    const squash = document.createElement('canvas');
+    squash.width = AW;
+    squash.height = AH;
+    squash.getContext('2d').drawImage(devImg, 0, 0, AW, AH);
+
     try {
-        const resp = await fetch('/analyze', {
+        const resp = await fetch('/agent/perceive', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image: dataUrl })
+            body: JSON.stringify({ image: squash.toDataURL('image/jpeg', 0.85), mode: 'detect', width: AW, height: AH })
         });
         const data = await resp.json();
-        if (data.bbox && data.bbox.length === 4) {
-            const sx = devImg.clientWidth / devImg.naturalWidth;
-            const sy = devImg.clientHeight / devImg.naturalHeight;
-            const box = document.createElement('div');
-            box.className = 'dev-box';
-            box.style.left = (data.bbox[0] * sx) + 'px';
-            box.style.top = (data.bbox[1] * sy) + 'px';
-            box.style.width = ((data.bbox[2] - data.bbox[0]) * sx) + 'px';
-            box.style.height = ((data.bbox[3] - data.bbox[1]) * sy) + 'px';
-            devWrap.appendChild(box);
-            const lbl = document.createElement('div');
-            lbl.className = 'dev-box-label';
-            lbl.style.left = (data.bbox[0] * sx) + 'px';
-            lbl.style.top = (data.bbox[1] * sy) + 'px';
-            lbl.textContent = (data.label || '按钮') + (data.confidence ? ' ' + Math.round(data.confidence * 100) + '%' : '');
-            devWrap.appendChild(lbl);
-            devResult.textContent = '✓ 识别到按钮：bbox=[' + data.bbox.join(',') + ']';
-        } else {
-            devResult.textContent = '未找到按钮' + (data.error ? '（' + data.error + '）' : '') +
-                (data.raw ? '，模型原始输出：' + data.raw : '');
+        appendDevLogs(data.agent_logs);
+        if (!data.ok) {
+            devResult.innerHTML = '<span style="color:#d64541">检测失败：' + (data.error || '未知错误') + '</span>';
+            return;
         }
+        if (!data.has_ad || !data.bbox) {
+            devResult.innerHTML = '<span style="color:#c07d10">未检测到开屏广告或关闭按钮</span>'
+                + (data.reason ? '（' + data.reason + '）' : '');
+            return;
+        }
+        // 感知空间 bbox → 显示图坐标（x 和 y 同比例映射）
+        const sx = devImg.clientWidth / AW;
+        const sy = devImg.clientHeight / AH;
+        const box = document.createElement('div');
+        box.className = 'dev-box';
+        box.style.left = (data.bbox[0] * sx) + 'px';
+        box.style.top = (data.bbox[1] * sy) + 'px';
+        box.style.width = ((data.bbox[2] - data.bbox[0]) * sx) + 'px';
+        box.style.height = ((data.bbox[3] - data.bbox[1]) * sy) + 'px';
+        devWrap.appendChild(box);
+        const lbl = document.createElement('div');
+        lbl.className = 'dev-box-label';
+        lbl.style.left = (data.bbox[0] * sx) + 'px';
+        lbl.style.top = (data.bbox[1] * sy) + 'px';
+        lbl.textContent = (data.label || '按钮') + ' ' + Math.round((data.confidence || 0) * 100) + '%';
+        devWrap.appendChild(lbl);
+        devResult.innerHTML = '✅ 检测到关闭按钮「' + (data.label || '按钮') + '」'
+            + '（模型：' + (data.used_model || '未知') + '，置信度 ' + Math.round((data.confidence || 0) * 100) + '%）'
+            + (data.reason ? '<br>依据：' + data.reason : '');
     } catch (e) {
         devResult.textContent = '请求失败：' + e.message;
     }
 });
+
+function appendDevLogs(logs) {
+    if (!logs || !logs.length) return;
+    logs.forEach(line => {
+        const div = document.createElement('div');
+        if (line.startsWith('[Agent 决策]')) div.className = 'log-line log-decision';
+        else if (line.startsWith('[错误]')) div.className = 'log-line log-error';
+        else if (line.startsWith('[结果]')) div.className = 'log-line log-result';
+        else div.className = 'log-line log-agent';
+        div.textContent = line;
+        devLogs.appendChild(div);
+    });
+}
 
 /* ---------- 初始化 ---------- */
 drawScreen();
