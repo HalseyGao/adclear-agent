@@ -334,10 +334,16 @@ def _escalate(img, prompt, width, height, logs):
     return resp
 
 
-def _perceive_with_ladder(img, prompt, width, height):
-    """分层决策核心：快速模型 → 自我评估 → 不准则自动升级高级模型。"""
+def _perceive_with_ladder(img, prompt, width, height, first_log=None):
+    """分层决策核心：快速模型 → 自我评估 → 不准则自动升级高级模型。
+
+    解析失败时先用重试提示词让快速模型再试一次（格式抖动很常见），
+    重试仍失败才升级到高级模型——避免频繁触发昂贵升级，省时省钱。
+    """
     w, h = int(width or 720), int(height or 1560)
-    logs = [f"[Agent] 正在调用快速模型 ({_model_display(MODEL_CHEAP)}) 进行识别..."]
+    if first_log is None:
+        first_log = f"[Agent] 正在调用快速模型 ({_model_display(MODEL_CHEAP)}) 进行识别..."
+    logs = [first_log]
 
     ok, content, error, auth_error = _call_vision(img, prompt, MODEL_CHEAP)
     if not ok:
@@ -347,9 +353,23 @@ def _perceive_with_ladder(img, prompt, width, height):
 
     parsed = _extract_json(content)
     if parsed is None:
-        logs.append("[结果] 快速模型输出无法解析为 JSON，视为不可靠。")
-        logs.append("[Agent 决策] 快速模型结果不理想，触发升级策略。")
-        return _escalate(img, prompt, w, h, logs)
+        # 第一层容错：格式抖动 → 快速模型用重试提示词再试一次
+        logs.append(f"[结果] 快速模型输出无法解析为 JSON（原始输出：{content[:120]}）")
+        logs.append("[Agent 决策] 输出格式异常，先用重试提示词再试一次快速模型……")
+        retry_prompt = RETRY_PROMPT.replace("{SIZE}", f"{w}×{h}")
+        ok2, content2, error2, auth2 = _call_vision(img, retry_prompt, MODEL_CHEAP)
+        if ok2:
+            parsed = _extract_json(content2)
+            if parsed is not None:
+                logs.append("[结果] 快速模型重试成功，输出已解析。")
+            else:
+                logs.append(f"[结果] 快速模型重试仍无法解析（原始输出：{content2[:120]}）")
+                logs.append("[Agent 决策] 快速模型结果不理想，触发升级策略。")
+                return _escalate(img, prompt, w, h, logs)
+        else:
+            logs.append(f"[错误] 快速模型重试调用失败：{error2}")
+            logs.append("[Agent 决策] 触发升级策略。")
+            return _escalate(img, prompt, w, h, logs)
 
     resp = _normalize(parsed, w, h)
     if not resp["has_ad"]:
@@ -437,10 +457,8 @@ def agent_perceive():
     if mode == 'verify':
         # 验证也走分层决策：快速模型解析失败或判断存疑时自动升级，避免前端卡死在"验证未完成"
         prompt = VERIFY_PROMPT.replace("{SIZE}", size_text)
-        logs = [f"[Agent] 正在调用快速模型 ({_model_display(MODEL_CHEAP)}) 验证屏幕状态..."]
-        resp = _perceive_with_ladder(img, prompt, width, height)
-        resp["agent_logs"] = logs + resp.get("agent_logs", [])
-        return jsonify(resp)
+        first_log = f"[Agent] 正在调用快速模型 ({_model_display(MODEL_CHEAP)}) 验证屏幕状态..."
+        return jsonify(_perceive_with_ladder(img, prompt, width, height, first_log=first_log))
 
     if mode == 'escalate':
         prompt = RETRY_PROMPT.replace("{SIZE}", size_text)

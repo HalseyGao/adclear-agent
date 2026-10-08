@@ -191,6 +191,11 @@
     .banner.fail { display: block; background: #ffeceb; color: #d64541; }
 
     /* ---------- Agent 思考日志 ---------- */
+    .log-title {
+        font-size: 16px;
+        color: #2a2d3a;
+        margin-bottom: 8px;
+    }
     .agent-logs {
         max-height: 340px;
         overflow-y: auto;
@@ -269,6 +274,9 @@
     }
     .dev-result { font-size: 13px; color: #3a3e4c; margin-top: 12px; line-height: 1.7; }
     .dev-logs { margin-top: 6px; max-height: 160px; }
+    .dev-file-status { font-size: 12.5px; color: #1d9e50; margin-top: 10px; min-height: 18px; }
+    .btn.dev-btn.ghost { background: #fff; color: #667eea; border: 2px solid #667eea; }
+    .btn.dev-btn.ghost:disabled { opacity: 0.4; cursor: not-allowed; }
     .debug-toggle { font-size: 13px; color: #555a68; display: flex; gap: 8px; align-items: center; cursor: pointer; }
 
     @media (max-width: 900px) {
@@ -328,12 +336,12 @@
             <div class="banner" id="banner"></div>
         </div>
 
-        <details class="card agent-log-card" id="agentLogCard">
-            <summary>📋 Agent 思考日志</summary>
+        <div class="card agent-log-card">
+            <h3 class="log-title">📋 Agent 思考日志</h3>
             <div class="agent-logs" id="agentLogs">
                 <p class="timeline-empty">暂无日志。运行「让 Agent 帮我关闭」后，这里会实时显示 Agent 的每一步决策。</p>
             </div>
-        </details>
+        </div>
 
         <div class="card dev-card">
             <h3 class="dev-title">📷 真实广告截图测试</h3>
@@ -344,8 +352,10 @@
             </div>
             <div class="dev-row">
                 <button class="btn dev-btn" id="devBtn">🔍 开始检测</button>
+                <button class="btn dev-btn ghost" id="devToPhone" disabled>📱 加载到模拟手机</button>
                 <label class="debug-toggle"><input type="checkbox" id="showTruth"> 在模拟手机广告上显示真实按钮位置（调试）</label>
             </div>
+            <div class="dev-file-status" id="devFileStatus"></div>
             <div class="dev-preview-wrap" id="devWrap">
                 <img id="devImg" alt="预览">
             </div>
@@ -609,10 +619,22 @@ function drawTruthBox(c) {
     ctx.textBaseline = 'alphabetic';
 }
 
+function drawCustom() {
+    // 用户上传的截图：拉伸铺满手机屏幕
+    if (devImg.complete && devImg.naturalWidth > 0) {
+        ctx.drawImage(devImg, 0, 0, W, H);
+    } else {
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, W, H);
+    }
+    drawStatusBar();
+}
+
 function drawScreen() {
     if (phoneState === 'idle') drawIdle();
     else if (phoneState === 'home') drawHome();
     else if (phoneState === 'ad' && currentCase) drawAd(currentCase);
+    else if (phoneState === 'custom') drawCustom();
 }
 
 /* ---------- 截图（Agent 感知空间：压扁为 720×720） ---------- */
@@ -679,8 +701,10 @@ function animateClick(px, py) {
     });
 }
 
-/* 命中判定：Agent 感知空间点 vs 感知空间真值矩形 */
+/* 命中判定：Agent 感知空间点 vs 感知空间真值矩形
+   自定义截图模式（用户上传）没有内置真值 → 点击视为生效 */
 function hitTest(apx, apy) {
+    if (phoneState === 'custom') return true;
     const b = currentCase.btn;
     const pad = 16;
     return apx >= b.x - pad && apx <= b.x + b.w + pad &&
@@ -780,7 +804,7 @@ function validAgentBbox(bbox) {
 
 async function runAgent() {
     if (agentRunning) return;
-    if (phoneState !== 'ad') {
+    if (phoneState !== 'ad' && phoneState !== 'custom') {
         clearTimeline();
         addStatus('✓', '当前屏幕没有开屏广告', '无需操作');
         return;
@@ -870,7 +894,7 @@ async function runAgent() {
         const apx = (safeBbox[0] + safeBbox[2]) / 2;
         const apy = (safeBbox[1] + safeBbox[3]) / 2;
         drawDetectedBox(safeBbox);
-        await sleep(1000);
+        await sleep(650);
         addStatus('🖱', '正在执行关闭操作');
         const [cpx, cpy] = agentToReal([apx, apy, apx, apy]);
         await animateClick(cpx, cpy);
@@ -881,7 +905,7 @@ async function runAgent() {
             addStatus('✓', '点击已生效', '广告正在退出……');
             phoneState = 'home';
             drawScreen();
-            await sleep(700);
+            await sleep(500);
             addStatus('🔍', '正在验证结果', '再次观察屏幕，确认广告状态……');
             let v = await perceive(captureScreen(), 'verify');
             appendAgentLogs(v.agent_logs);
@@ -981,11 +1005,13 @@ document.getElementById('showTruth').addEventListener('change', e => {
 /* ---------- 真实广告截图测试（与模拟手机同管线：压扁感知空间 + 分层 Agent） ---------- */
 const devFile = document.getElementById('devFile');
 const devBtn = document.getElementById('devBtn');
+const devToPhone = document.getElementById('devToPhone');
 const devWrap = document.getElementById('devWrap');
 const devImg = document.getElementById('devImg');
 const devResult = document.getElementById('devResult');
 const devLogs = document.getElementById('devLogs');
 const devDrop = document.getElementById('devDrop');
+const devFileStatus = document.getElementById('devFileStatus');
 
 devDrop.addEventListener('click', () => devFile.click());
 devDrop.addEventListener('dragover', e => {
@@ -996,14 +1022,15 @@ devDrop.addEventListener('dragleave', () => devDrop.classList.remove('dragover')
 devDrop.addEventListener('drop', e => {
     e.preventDefault();
     devDrop.classList.remove('dragover');
-    if (e.dataTransfer.files.length) devFile.files = e.dataTransfer.files;
+    if (e.dataTransfer.files.length) {
+        devFile.files = e.dataTransfer.files;
+        devFile.dispatchEvent(new Event('change'));
+    }
 });
 
-devBtn.addEventListener('click', async () => {
-    if (!devFile.files.length) {
-        devResult.textContent = '请先选择一张图片';
-        return;
-    }
+/* 选择文件后立即显示预览和状态，明确告知"上传成功" */
+devFile.addEventListener('change', async () => {
+    if (!devFile.files.length) return;
     const file = devFile.files[0];
     const dataUrl = await new Promise(res => {
         const rd = new FileReader();
@@ -1013,6 +1040,29 @@ devBtn.addEventListener('click', async () => {
     devImg.src = dataUrl;
     await new Promise(res => { devImg.onload = res; });
     devWrap.style.display = 'block';
+    devWrap.querySelectorAll('.dev-box, .dev-box-label').forEach(el => el.remove());
+    devResult.innerHTML = '';
+    devLogs.innerHTML = '';
+    devFileStatus.textContent = '✅ 已上传：' + file.name + '（' + devImg.naturalWidth + '×' + devImg.naturalHeight + ' px）';
+    devToPhone.disabled = false;
+    devBtn.disabled = false;
+});
+
+/* 一键把上传截图加载到模拟手机，跑完整 Agent 流程 */
+devToPhone.addEventListener('click', () => {
+    if (!devImg.complete || devImg.naturalWidth === 0) return;
+    phoneState = 'custom';
+    drawScreen();
+    clearTimeline();
+    addStatus('📷', '已加载上传截图到模拟手机', '现在点「让 Agent 帮我关闭」可在该截图上演示完整流程');
+    showToast('已加载到模拟手机');
+});
+
+devBtn.addEventListener('click', async () => {
+    if (!devFile.files.length || !devImg.complete || devImg.naturalWidth === 0) {
+        devResult.textContent = '请先选择一张图片';
+        return;
+    }
     devWrap.querySelectorAll('.dev-box, .dev-box-label').forEach(el => el.remove());
     devResult.innerHTML = '识别中……';
     devLogs.innerHTML = '';
