@@ -52,6 +52,14 @@ MODEL_DISPLAY = {
 
 AGENT_BASE = "你是 AdClear Agent，一个帮助老年人和视障用户操作手机的智能助手。"
 
+# 追加到所有提示词末尾的 JSON 输出硬规则（防止模型输出破损 JSON）
+JSON_RULES = """
+输出规则（必须严格遵守）：
+1. 只输出 JSON 本身，禁止用 markdown 代码块（```）包裹，禁止输出任何解释性文字
+2. JSON 字符串值内部禁止出现未转义的双引号；需要引用按钮文字时，请使用「」或单引号代替
+3. reason 必须是一句简短的中文说明
+"""
+
 DETECT_PROMPT = AGENT_BASE + """
 请观察这张手机屏幕截图（分辨率 {SIZE} 像素），完成任务：
 1. 判断当前屏幕是否存在开屏广告（全屏或大面积推广画面）
@@ -64,7 +72,7 @@ DETECT_PROMPT = AGENT_BASE + """
 - bbox 坐标以图片左上角为原点，单位像素（x 在 0 到图宽、y 在 0 到图高之间），必须完整框住按钮
 - 找不到按钮时 bbox 为 null 且 confidence 低于 0.5
 - 不确定时如实给出较低的 confidence，不要猜测
-"""
+""" + JSON_RULES
 
 RETRY_PROMPT = AGENT_BASE + """
 请再次仔细观察这张手机屏幕截图（分辨率 {SIZE} 像素）。上一次分析未能可靠地找到关闭开屏广告的按钮。
@@ -79,14 +87,14 @@ RETRY_PROMPT = AGENT_BASE + """
 {"has_ad": true或false, "bbox": [x1,y1,x2,y2]或null, "label": "按钮上的文字或符号", "confidence": 0到1之间的小数, "reason": "一句话说明依据"}
 
 要求：bbox 坐标以图片左上角为原点，单位像素（x 在 0 到图宽、y 在 0 到图高之间）。
-"""
+""" + JSON_RULES
 
 VERIFY_PROMPT = AGENT_BASE + """
 请观察这张手机屏幕截图，只回答一个问题：当前屏幕是否还存在开屏广告（全屏或大面积推广画面）？
 
 只输出 JSON，不要输出其他任何内容：
 {"has_ad": true或false, "bbox": null, "label": "", "confidence": 0到1之间的小数, "reason": "一句话说明"}
-"""
+""" + JSON_RULES
 
 LOCALIZE_PROMPT = AGENT_BASE + """
 这是手机屏幕的局部放大截图，已经确定附近存在开屏广告的关闭/跳过按钮。请在这张局部图中精确定位这个按钮（如 ×、关闭、跳过、跳过广告，可能带倒计时）。
@@ -97,7 +105,7 @@ LOCALIZE_PROMPT = AGENT_BASE + """
 要求：
 - bbox 坐标以这张局部图左上角为原点，单位像素，必须完整框住按钮
 - 局部图中确实找不到按钮时，如实输出 bbox 为 null 且 confidence 低于 0.5
-"""
+""" + JSON_RULES
 
 # ---------------- 工具函数 ----------------
 
@@ -175,26 +183,60 @@ def _normalize_punct(s):
     return s
 
 
+def _strip_reason_tail(s):
+    """去掉 JSON 尾部的 reason 字段再补上 }。
+
+    reason 是最后一个字段，模型常在它里面用未转义引号引用按钮文字（如 "跳过"），
+    或输出被中途截断——头部字段（has_ad/bbox/label/confidence）往往是完好的。
+    """
+    m = re.search(r'"reason"\s*:', s)
+    if not m:
+        return s
+    head = s[:m.start()].rstrip().rstrip(',')
+    if not head.endswith('}'):
+        head += '}'
+    return head
+
+
+def _salvage_reason(s):
+    """从破损输出里抢救 reason 的开头一段（到第一个未转义引号为止）。"""
+    m = re.search(r'"reason"\s*:\s*"([^"]{1,50})', s)
+    return (m.group(1) + '…') if m else ''
+
+
 def _try_loads(s):
-    """宽松解析字符串为 dict：把各修复手段按任意组合叠加后逐一尝试。"""
+    """宽松解析字符串为 dict：把各修复手段按任意组合叠加后逐一尝试。
+
+    解析成功后，如果 reason 缺失（因剥离破损尾巴），则抢救其开头片段。
+    """
     transforms = (
-        _normalize_punct,                                              # 全角标点归一化
-        _escape_newlines_in_strings,                                   # 字符串内裸换行转义
-        lambda x: re.sub(r',\s*([}\]])', r'\1', x),                    # 去尾逗号
-        lambda x: x.replace('“', '"').replace('”', '"')                # 中文引号
+        _strip_reason_tail,                                             # 剥离破损的 reason 尾巴
+        _normalize_punct,                                               # 全角标点归一化
+        _escape_newlines_in_strings,                                    # 字符串内裸换行转义
+        lambda x: re.sub(r',\s*([}\]])', r'\1', x),                     # 去尾逗号
+        lambda x: x.replace('“', '"').replace('”', '"')                 # 中文引号
                    .replace('‘', "'").replace('’', "'"),
     )
     current = {s}
     for t in transforms:
         for v in list(current):
             current.add(t(v))
+    first_obj = None
     for v in current:
         try:
             obj = json.loads(v)
             if isinstance(obj, dict):
-                return obj
+                if first_obj is None:
+                    first_obj = obj
+                # 优先返回 reason 完整的解析结果（最完整的变体）
+                if obj.get('reason'):
+                    return obj
         except (json.JSONDecodeError, ValueError):
             continue
+    if first_obj is not None:
+        if not first_obj.get('reason'):
+            first_obj['reason'] = _salvage_reason(s)
+        return first_obj
     return None
 
 
@@ -240,7 +282,9 @@ def _call_vision(image_url, prompt, model):
             ]
         }],
         # 要求模型输出纯 JSON（已实测 ChatAnywhere 支持；即使模型仍加围栏，解析器也能容错）
-        "response_format": {"type": "json_object"}
+        "response_format": {"type": "json_object"},
+        # 明确上限，防止中转平台默认截断输出
+        "max_tokens": 1024
     }
     headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
     try:
